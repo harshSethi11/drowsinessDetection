@@ -1,12 +1,9 @@
 """
 Real-time Drowsiness Detector (EAR-based)
------------------------------------------
 - Uses either dlib (68-point landmarks) or MediaPipe FaceMesh.
 - Non-blocking TTS on Windows via SAPI5 (falls back to a beep).
 - 'C' to quick-calibrate threshold using your "eyes open" baseline.
 - 'Q' or ESC to quit.
-
-Author: you (+ a tidy pass)
 """
 
 import os
@@ -19,7 +16,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-# ---------- Optional imports (loaded if available) ----------
+# Optional imports (loaded if available) 
 try:
     import dlib
     _HAS_DLIB = True
@@ -33,16 +30,15 @@ except Exception:
     _HAS_MP = False
 
 
-# =========================
-# Configuration (tweak me)
-# =========================
-CAM_INDEX = 0                # Change to 1 if you have multiple cameras
-FRAME_WIDTH = 960            # Resize width for speed; set None to keep native
+# Configuration 
 
-EAR_THRESHOLD = 0.25         # Default EAR threshold (overridden by 'C' calibrate)
-CONSEC_FRAMES = 15           # Frames below threshold before alert
-SMOOTHING_WINDOW = 5         # Moving avg window length for EAR
-ALERT_COOLDOWN_SEC = 2.0     # Min seconds between audible alerts
+CAM_INDEX = 0                
+FRAME_WIDTH = 960           
+
+EAR_THRESHOLD = 0.25         
+CONSEC_FRAMES = 15           
+SMOOTHING_WINDOW = 5        
+ALERT_COOLDOWN_SEC = 2.0    
 
 # dlib 68-landmarks model path (only used if _HAS_DLIB True)
 DLIB_LANDMARKS_PATH = r"C:\Users\Harsh Sethi\Downloads\shape_predictor_68_face_landmarks.dat"
@@ -54,22 +50,20 @@ ALERT_COLOR = (36, 36, 255)
 
 WINDOW_NAME = "Real-time Drowsiness Detector (Q=quit, C=calibrate)"
 
-# ----- Visualization style -----
+#  Visualization style 
 DRAW_STYLE = "dots"   # options: "dots" or "lines"
 DOT_RADIUS = 2        # pixel radius for dots
 
 
 
-# =========================
 # TTS: non-blocking SAPI5
-# =========================
+
 _TTS = None
 _TTS_OK = False
 _TTS_INIT_LOCK = threading.Lock()
 
 def tts_init() -> None:
-    """Initialize a non-blocking SAPI5 TTS engine (Windows).
-    We start a background loop so 'say' is non-blocking per frame."""
+    """Initialize a non-blocking SAPI5 TTS engine ."""
     global _TTS, _TTS_OK
     with _TTS_INIT_LOCK:
         if _TTS_OK:
@@ -110,7 +104,7 @@ def tts_shutdown() -> None:
             pass
 
 def speak_or_beep(message: str = "Alert! Drowsiness detected.") -> None:
-    """High-level alert: try TTS, else beep (Windows)."""
+    """High-level alert: try TTS, else beep."""
     if _TTS_OK:
         tts_say(message)
     else:
@@ -118,12 +112,11 @@ def speak_or_beep(message: str = "Alert! Drowsiness detected.") -> None:
             import winsound
             winsound.Beep(1000, 700)
         except Exception:
-            pass  # Silent fallback if we can't beep
+            pass  # Silent fallback if can't beep
 
 
-# =========================
 # Utility functions
-# =========================
+
 def safe_path(p: str) -> str:
     """Normalize a Windows path to avoid unicode-escape surprises."""
     return p.replace("\\", "/")
@@ -149,9 +142,8 @@ def order_for_ear(six_points: np.ndarray) -> np.ndarray:
     return six_points
 
 
-# =========================
 # Dlib backend
-# =========================
+
 class DlibBackend:
     """Dlib 68-landmarks backend for computing EAR."""
 
@@ -175,7 +167,7 @@ class DlibBackend:
         """
         faces = self.detector(gray, 0)
         if len(faces) == 0:
-            return None  # <-- important: return None, not (None, None, None)
+            return None  
         face = faces[0]
         shape = self.predictor(gray, face)
         pts = np.array([(shape.part(i).x, shape.part(i).y) for i in range(68)], dtype=np.float32)
@@ -188,10 +180,8 @@ class DlibBackend:
 
         return (left_ear, right_ear), pts, (self.LEFT, self.RIGHT)
 
-
-# =========================
 # MediaPipe backend
-# =========================
+
 class MediaPipeBackend:
     """MediaPipe FaceMesh backend approximating EAR using canonical eye points."""
 
@@ -256,9 +246,8 @@ def draw_eye_overlay(img, points, style="dots", color=(0, 255, 0)):
 
 
 
-# =========================
 # Main app
-# =========================
+
 def main() -> None:
     # Prefer dlib if available and model exists; else fall back to MediaPipe.
     backend = None
@@ -331,14 +320,14 @@ def main() -> None:
                     draw_eye_overlay(draw, lpts, style=DRAW_STYLE, color=(0, 255, 0))
                     draw_eye_overlay(draw, rpts, style=DRAW_STYLE, color=(0, 255, 0))
 
-            # Smooth EAR with moving average (helps jittery landmarks)
+            # Smooth EAR with moving average 
             smooth_ear: Optional[float] = None
             if left_right_ear is not None:
                 ear = float(np.mean(left_right_ear))
                 ear_buffer.append(ear)
                 smooth_ear = float(np.mean(ear_buffer)) if ear_buffer else None
 
-            # ----- HUD -----
+            # HUD 
             h, w = draw.shape[:2]
             cv2.rectangle(draw, (0, 0), (w, 80), (0, 0, 0), -1)
 
@@ -361,7 +350,7 @@ def main() -> None:
                 cv2.LINE_AA,
             )
 
-            # ----- Logic: consecutive frames below threshold => alert -----
+            # Logic: consecutive frames below threshold => alert
             if smooth_ear is not None:
                 if smooth_ear < ear_thresh:
                     below_counter += 1
@@ -413,17 +402,16 @@ def main() -> None:
                 if tmp_vals:
                     calib_open_baseline = float(np.median(tmp_vals))
                     # Typical closed-eye EAR is ~35–45% of open.
-                    # Using ~72% of open as threshold is a good safety margin.
+                    # Using ~72% of open as threshold is a valid safety margin.
                     ear_thresh = max(0.15, calib_open_baseline * 0.72)
                     print(f"[CALIB] open_EAR≈{calib_open_baseline:.3f}  -> threshold={ear_thresh:.3f}")
                     below_counter = 0
                     ear_buffer.clear()
 
-        # end while
     except KeyboardInterrupt:
         pass
     finally:
-        # Always release resources cleanly
+        # release resources cleanly
         cap.release()
         cv2.destroyAllWindows()
         tts_shutdown()
